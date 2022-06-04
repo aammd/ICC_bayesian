@@ -1,0 +1,158 @@
+---
+title: "Bayesian version of the Interclass Correlation Coefficient (ICC)"
+description: |
+  How much do groups contribute to variance in a response? Using posterior simulations to get a simple (?) answer.
+site: distill::distill_website
+bibliography: refs.bib
+---
+
+
+How much variation is contributed by group differences? This is a useful question in several contexts. Sometimes it is simply a guide to model building -- is it "worth it" to include group effects in my model? In other projects we might care about measuring variation explicitly. For example, we might want to measure what proportion of phenotypic variation can be ascribed to different genotypes. Or we might have different experimental subjects, and we want to know if the same subject responds in the same way across trials. 
+
+Clearly, observations from the same subject will be correlated to each other, since all those observations come from the same person/animal/thing, which differs in all kinds of unmeasured ways from the other people/animal/things we are studying. This correlation is measured, for some models, using the "interclass correlation coefficient" (ICC).  The trouble is that the ICC:
+
+* Doesn't have any uncertainty estimates -- since it comes from a model, we have to represent a distribution of possible correlations consistent with the data
+* Only works sometimes. There are only a few models for which there are formulae to calculate ICC, and a wide class of flexible models are left out with no clear way to proceed.
+
+Here I'm suggesting an approach to calculate the ICC based on a Bayesian posterior distribution for the model coefficients. The approach is heavily based on the Bayesian R2 [@GelmGood19a]. The approach I'm suggesting replaces a single value of ICC with a distribution. However, for models beyond simple intercept-only models, this ICC calculation produces a curve, $\text{ICC}(x)$ because in these cases the contribution of group effects depends on the rest of the model.
+
+Below is a quick description of what I'm suggesting followed by some simulations testing it in a few interesting cases.
+
+
+## What is the ICC
+
+The formula goes like this:
+
+$$
+\frac{\sigma_{group}^2}{\sigma_{group}^2 + \sigma_{obs}^2}
+$$
+
+
+Which works for a model like this:
+
+$$
+\begin{align}
+y_i &\sim \text{Normal}(\mu_i, \sigma_{obs}^2) \\
+\mu_i &= \alpha_0 + X_i\beta+ \alpha_{\text{group}[i]} \\
+\alpha_{\text{group}} &\sim \text{Normal}(0, \sigma_{\text{group}}^2)
+\end{align}
+$$
+
+That is, a gaussian response with random intercepts for groups. 
+In this case, $X_i\beta$ could be any vector of predictors, multiplied by their coefficients. 
+
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(rptR)
+library(brms)
+library(tidyverse)
+library(tidybayes)
+```
+
+
+## Gaussian Intercept-only model
+
+This is the classic case: a regression of a gaussian species across  
+
+```{r, eval=TRUE}
+
+water <- runif(50)
+
+avg_size <- 23
+
+ecart_size <- rnorm(20, mean = 0, sd = 3)
+
+slope_water <- 4.2
+
+avg_resp <- expand_grid(sp_id = 1:20,
+            water) |>
+  mutate(avg = avg_size + ecart_size[sp_id] + slope_water*water)
+
+avg_resp |>
+  ggplot(aes(x = water, y = avg, group = sp_id)) +
+  geom_line()
+
+obs_sd <- 2
+
+obs_data <- avg_resp |>
+  mutate(obs = rnorm(length(avg), mean = avg, sd = obs_sd))
+
+obs_data |>
+  ggplot(aes(x = water, y = obs)) + geom_point() +
+  geom_line(aes(y = avg, group = sp_id))
+
+
+
+
+lmer_mod <- lmer(obs~water + (1 | sp_id), data = obs_data)
+
+gauss_vc <- VarCorr(lmer_mod) |> as.data.frame()
+gauss_vc$sdcor[[1]]^2
+# 2.4490^2/(2.4490^2 + 0.29936^2)
+freq_line <- gauss_vc$vcov[[1]]/(gauss_vc$vcov[[1]] + gauss_vc$vcov[[2]])
+
+
+rpt_obs <- rpt(obs ~ water + (1 | sp_id),
+                     data = mutate(obs_data, sp_id = factor(sp_id)),
+          grname = "sp_id", datatype = "Gaussian", nboot = 0, npermut = 0)
+
+rpt_obs
+
+### bayes
+
+
+
+gaussian_intercept_bf <- bf(obs~ water + (1 | sp_id),
+                            family = gaussian())
+
+get_prior(gaussian_intercept_bf,
+          data = obs_data)
+
+gaussian_intercept_priors <- c(
+  prior(exponential(.3), class = sigma),
+  prior(exponential(.2), class = "sd"),
+  prior(normal(5, 6), class = "b"),
+  prior(normal(50, 10), class = "Intercept")
+)
+
+
+gaussian_brm <- brm(gaussian_intercept_bf,
+                 prior = gaussian_intercept_priors,
+                 data = obs_data, file = "gaussian_brm",
+                 backend = "cmdstanr", cores = 4)
+
+gaussian_brm <- update(gaussian_brm, newdata = obs_data, cores = 4, refresh = 0)
+
+brms::bayes_R2(gaussian_brm)
+
+sample_draws <- expand_grid(sp_id = letters,
+                            water = unique(obs_data$water)) |>
+  add_epred_draws(gaussian_brm,
+                  allow_new_levels = TRUE,
+                  sample_new_levels= "gaussian")
+
+sample_variance <- sample_draws |>
+  ungroup() |>
+  nest_by(.draw, water) |>
+  mutate(Vpred = var(data$.epred))
+
+sigma_draws <- spread_draws(gaussian_brm, sigma)
+
+icc_of_x <- sample_variance |>
+  ungroup() |>
+  left_join(sigma_draws, by = ".draw") |>
+  mutate(icc_x = Vpred/(Vpred + sigma^2))
+
+icc_of_x |>
+  select(.draw, icc_x) |> distinct() |>
+  ggplot(aes(x = icc_x)) +
+  geom_histogram() +
+  geom_vline(xintercept = freq_line, col = "lightblue")
+
+
+```
+
+
+There are many elaborations suggested by [@NakaSchi10]

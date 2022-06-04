@@ -1,0 +1,12 @@
+name: "ICC_bayesian"
+title: "Bayesian version of the Interclass Correlation Coefficient (ICC)"
+description: |
+  Bayesian version of the Interclass Correlation Coefficient (ICC)
+output_dir: "docs"
+navbar:
+  right:
+    - text: "Home"
+      href: index.html
+    - text: "About"
+      href: about.html
+output: distill::distill_article

@@ -108,6 +108,7 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
   
   <meta name="citation_reference" content="citation_title=Repeatability for Gaussian and non-Gaussian data: A practical guide for biologists;citation_publication_date=2010;citation_volume=85;citation_doi=10.1111/j.1469-185X.2010.00141.x;citation_issn=1469-185X;citation_author=Shinichi Nakagawa;citation_author=Holger Schielzeth"/>
   <meta name="citation_reference" content="citation_title=R-squared for Bayesian Regression Models;citation_publication_date=2019;citation_volume=73;citation_doi=10.1080/00031305.2018.1549100;citation_issn=0003-1305, 1537-2731;citation_author=Andrew Gelman;citation_author=Ben Goodrich;citation_author=Jonah Gabry;citation_author=Aki Vehtari"/>
+  <meta name="citation_reference" content="citation_title=rptR: Repeatability estimation and variance decomposition by generalized linear mixed-effects models;citation_publication_date=2017;citation_volume=8;citation_doi=10.1111/2041-210X.12797;citation_author=Martin A. Stoffel;citation_author=Shinichi Nakagawa;citation_author=Holger Schielzeth"/>
   <!--radix_placeholder_rmarkdown_metadata-->
 
   <script type="text/json" id="radix-rmarkdown-metadata">
@@ -2092,14 +2093,10 @@ code span.wa { color: #5e5e5e; font-style: italic; } /* Warning */
 <li>Doesn’t have any uncertainty estimates – since it comes from a model, we have to represent a distribution of possible correlations consistent with the data</li>
 <li>Only works sometimes. There are only a few models for which there are formulae to calculate ICC, and a wide class of flexible models are left out with no clear way to proceed.</li>
 </ul>
-<p>Here I’m suggesting an approach to calculate the ICC based on a Bayesian posterior distribution for the model coefficients. The approach is heavily based on the Bayesian R2 <span class="citation" data-cites="GelmGood19a">(<a href="#ref-GelmGood19a" role="doc-biblioref">Gelman et al. 2019</a>)</span>. The approach I’m suggesting replaces a single value of ICC with a distribution. However, for models beyond simple intercept-only models, this ICC calculation produces a curve, <span class="math inline">\(\text{ICC}(x)\)</span> because in these cases the contribution of group effects depends on the rest of the model.</p>
+<p>Here I’m suggesting an approach to calculate the ICC based on a Bayesian posterior distribution for the model coefficients. The approach is heavily based on the Bayesian R2 <span class="citation" data-cites="GelmGood19a">(<a href="#ref-GelmGood19a" role="doc-biblioref">Gelman et al. 2019</a>)</span>. The approach I’m suggesting replaces a single value of ICC with a distribution. However, for models beyond simple intercept-only models, this ICC calculation produces a curve, <span class="math inline">\(\text{ICC}(x)\)</span>, because in these cases the contribution of group effects depends on the rest of the model.</p>
 <p>Below is a quick description of what I’m suggesting followed by some simulations testing it in a few interesting cases.</p>
 <h2 id="what-is-the-icc">What is the ICC</h2>
-<p>The formula goes like this:</p>
-<p><span class="math display">\[
-\frac{\sigma_{group}^2}{\sigma_{group}^2 + \sigma_{obs}^2}
-\]</span></p>
-<p>Which works for a model like this:</p>
+<p>The ICC is the proportion of total variation that comes from group differences. The simplest and most intuitive formula comes from a gaussian model with random intercepts, like this one:</p>
 <p><span class="math display">\[
 \begin{align}
 y_i &amp;\sim \text{Normal}(\mu_i, \sigma_{obs}^2) \\
@@ -2108,6 +2105,70 @@ y_i &amp;\sim \text{Normal}(\mu_i, \sigma_{obs}^2) \\
 \end{align}
 \]</span></p>
 <p>That is, a gaussian response with random intercepts for groups. In this case, <span class="math inline">\(X_i\beta\)</span> could be any vector of predictors, multiplied by their coefficients.</p>
+<p>Here, the ICC is a ratio of the hyperparameter <span class="math inline">\(\sigma_{\text{group}}^2\)</span> to sum of that hyperparameter and the residual variance, <span class="math inline">\(\sigma_{\text{obs}}^2\)</span>.</p>
+<p><span class="math display">\[
+\frac{\sigma_{group}^2}{\sigma_{group}^2 + \sigma_{obs}^2}
+\]</span></p>
+<p>Since all variation in the above model comes from one of these two places, the result is the proportion of variation which comes from group differences.</p>
+<h2 id="proposed-simulation-based-version">Proposed simulation based version</h2>
+<p>The idea for an ICC based on simulations is inspired by the Bayesian R^2 equation of <span class="citation" data-cites="GelmGood19a">(<a href="#ref-GelmGood19a" role="doc-biblioref">Gelman et al. 2019</a>)</span>, which is also explained in <a href="https://avehtari.github.io/ROS-Examples/Rsquared/rsquared.html">this excellent workbook</a> by Gelman, Hill and Vehtari:</p>
+<p><span class="math display">\[
+R^2 = \frac{\text{Var}_\mu}{\text{Var}_\mu + \text{Var}_{\text{res}}}
+\]</span></p>
+<p>Here <span class="math inline">\(\mu\)</span> is the model fitted values:</p>
+<p><span class="math display">\[
+\text{Var}_\mu^s = V_{n=1}^N\mu_n^s
+\]</span></p>
+<p>We also need the residual variance. To make it general, we use the expected residual variance like this:</p>
+<p><span class="math display">\[
+\text{Var}_{\text{res}}^s = \frac{1}{N}\sum_{n=1}^N (\text{Var}_{\text{res}})_n^s
+\]</span></p>
+<p>In words: for every posterior draw <span class="math inline">\(s\)</span>, get the variance for each observation <span class="math inline">\(n\)</span> and average them. In a gaussian regression with a constant variance you would of course get a constant:</p>
+<p><span class="math display">\[
+\frac{1}{N}\sum_{n=1}^N (\text{Var}_{\text{res}})_n^s = \frac{1}{N}\sum_{n=1}^N (\sigma^2)^s = (\sigma^2)^s
+\]</span></p>
+<p>But that’s not true for example in a logistic regression (this is the example given in the workbook linked above), where the mean and the variance have a close relationship. If the mean for observation number <span class="math inline">\(n\)</span> in draw <span class="math inline">\(s\)</span> is <span class="math inline">\(\pi_n^s\)</span>, then:</p>
+<p><span class="math display">\[
+\frac{1}{N}\sum_{n=1}^N (\text{Var}_{\text{res}})_n^s = \frac{1}{N}\sum_{n=1}^N \pi_n^s(1-\pi_n^s)
+\]</span></p>
+<p>In this calculation, we look at the variance <em>across the models fitted values</em> and combine it with the <em>expected variance for each fitted value</em>.</p>
+<p>The approach I’m suggesting is basically the same equation in two dimensions. The recipie goes like this:</p>
+<ul>
+<li>For each posterior sample <span class="math inline">\(\theta^s\)</span>, draw <span class="math inline">\(K\)</span> groups from the hyperpriors that define the groups. Typically this will be a univariate or multivariate gaussian distribution. Each group has its id number: <span class="math inline">\(1 ... k ... K\)</span>. You end up with a matrix of group-level parameters, with dimensions <span class="math inline">\(S\)</span> and <span class="math inline">\(K\)</span>.</li>
+<li>Create a smooth vector of <span class="math inline">\(x\)</span> values to predict across, within the range of your original <span class="math inline">\(x\)</span> values. Make <span class="math inline">\(M\)</span> of these values, <span class="math inline">\(x_{\text{min}} ... m ... x_{\text{max}}\)</span>.</li>
+<li>For each value <span class="math inline">\(m\)</span>, AND for each posterior sample <span class="math inline">\(s\)</span> calculate the variance across all the <span class="math inline">\(K\)</span> groups when $ x = m $:</li>
+</ul>
+<p><span class="math display">\[
+\text{ICC}(x = m) = \frac{
+V_{k=1}^K(\mu_m)_k^s
+}{
+V_{k=1}^K(\mu_m)_k^s + \frac{1}{K}\sum_{k=1}^K (\text{Var}_m^{\text{res}})_k^s
+}
+\]</span></p>
+<p>What this snarled notation is meant to convey is: We can calculate the ICC in a very similar way to the bayes <span class="math inline">\(R^2\)</span> value. In this case, instead of calculating the variance across the <span class="math inline">\(X_n\)</span> observations, we calculate the variance across the <span class="math inline">\(k\)</span> groups for some particular value of <span class="math inline">\(x\)</span>, say when <span class="math inline">\(x = m\)</span>.</p>
+<p><span class="math inline">\((\mu_m)_k^s\)</span> is the expected value of the model when <span class="math inline">\(x=m\)</span>, for group <span class="math inline">\(k\)</span> and posterior draw <span class="math inline">\(s\)</span>. For the model above this would be:</p>
+<p><span class="math display">\[
+(\mu_m)_k^s = \alpha_0^s + m\times\beta^s+ \alpha_{\text{group }k}^s
+\]</span></p>
+<p>Where <span class="math inline">\(m\)</span> is one particular value for <span class="math inline">\(x\)</span>. In all the models I’ve tried this on so far, there’s been a single univariate <span class="math inline">\(x\)</span> value<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a>. By calculating the variance across <span class="math inline">\(k\)</span> values of <span class="math inline">\((\mu_m)_k^s\)</span>, we get an estimate of how much groups contribute to overall variation at <span class="math inline">\(x = m\)</span>, according to posterior draw <span class="math inline">\(s\)</span>.</p>
+<p>Residual variance, <span class="math inline">\(\text{Var}_m^{\text{res}}\)</span>, is one constant number for any gaussian regression in a particular posterior draw <span class="math inline">\(s\)</span>. For most (all?) other regressions, it will typically be some function of <span class="math inline">\(m\)</span>. For example, in a logistic regression it would be <span class="math inline">\(\mu_m(1-\mu_m)\)</span>.</p>
+<aside>
+<span class="math inline">\(\mu_m\)</span> is of course a function of <span class="math inline">\(m\)</span>, since <span class="math display">\[
+\text{logit}(\mu_m) = \alpha_0 + m*\beta + \alpha_{\text{group }k}
+\]</span>
+</aside>
+<p>In these cases it will also be a function of the group offsets, and so each group <span class="math inline">\(k\)</span> will have its own residual variance. There might even be a model where residuals differ among groups (i.e. groups which are more or less “predictable,” with a greater or smaller variance). Because each of the <span class="math inline">\(K\)</span> groups will have its own variance in these cases, we take the average.</p>
+<aside>
+Is the mean a good way to summarize the expected value of residual variance for models where the different groups have very different variances?? Maybe the median would be a more sensible choice!
+</aside>
+<p>The goal of the rest of this document is to experiment with this calculation of <span class="math inline">\(\text{ICC}(x)\)</span>. First I’ll compare it to previous means of calculating ICC, then extend it to cases where that calculation isn’t possible.<br />
+Everything is based on simulated data.</p>
+<p>In the notes below I’ll refer to three kinds of ICC calculation:</p>
+<ul>
+<li><em>Frequentist</em>, AKA <span class="math inline">\(ICC_F\)</span> using the point estimates from a ML model for the parameters and hyperparameters involved. This is the value produced by the <code>rptR</code> package.</li>
+<li><em>Bayesian (analytic)</em> AKA <span class="math inline">\(\text{ICC}_B\)</span> applying the same formula as the frequentist approach, but using posterior draws for the (hyper)parameters. This produces a posterior distribution of ICC values.</li>
+<li><em>Bayesian (simulation)</em> AKA <span class="math inline">\(\text{ICC}(x)\)</span>, which is the approach I’m exploring here. This produces a value of the ICC for possible values of <span class="math inline">\(x\)</span>. The result can be visualized as a function of <span class="math inline">\(x\)</span>. For simple models this will be a flat line, with a marginal distribution that resembles that of <span class="math inline">\(ICC_B\)</span>. For all other models it will be a function with different values depending on <span class="math inline">\(x\)</span></li>
+</ul>
 <div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
 <pre class="sourceCode r"><code class="sourceCode r"><span class='fu'>knitr</span><span class='fu'>::</span><span class='va'><a href='https://rdrr.io/pkg/knitr/man/opts_chunk.html'>opts_chunk</a></span><span class='op'>$</span><span class='fu'>set</span><span class='op'>(</span>echo <span class='op'>=</span> <span class='cn'>TRUE</span><span class='op'>)</span>
@@ -2119,8 +2180,8 @@ y_i &amp;\sim \text{Normal}(\mu_i, \sigma_{obs}^2) \\
 </code></pre>
 </div>
 </div>
-<h2 id="gaussian-intercept-only-model">Gaussian Intercept-only model</h2>
-<p>This is the classic case: a regression of a gaussian species across</p>
+<h2 id="gaussian-random-intercepts-model">Gaussian random intercepts model</h2>
+<p>Imagine a simple experiment: different genetic lines of the same plant are each exposed to different amounts of water. Their growth is normally distributed around an average determined by how much water they get. The different genetic lines are different in their growth but all respond precisely the same way to the addition of water:</p>
 <div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
 <pre class="sourceCode r"><code class="sourceCode r"><span class='va'>water</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/Uniform.html'>runif</a></span><span class='op'>(</span><span class='fl'>50</span><span class='op'>)</span>
@@ -2130,43 +2191,40 @@ y_i &amp;\sim \text{Normal}(\mu_i, \sigma_{obs}^2) \\
 <span class='va'>ecart_size</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/Normal.html'>rnorm</a></span><span class='op'>(</span><span class='fl'>20</span>, mean <span class='op'>=</span> <span class='fl'>0</span>, sd <span class='op'>=</span> <span class='fl'>3</span><span class='op'>)</span>
 
 <span class='va'>slope_water</span> <span class='op'>&lt;-</span> <span class='fl'>4.2</span>
+<span class='va'>obs_sd</span> <span class='op'>&lt;-</span> <span class='fl'>2</span>
 
-<span class='va'>avg_resp</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>sp_id <span class='op'>=</span> <span class='fl'>1</span><span class='op'>:</span><span class='fl'>20</span>,
+<span class='va'>obs_data</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>sp_id <span class='op'>=</span> <span class='fl'>1</span><span class='op'>:</span><span class='fl'>20</span>,
             <span class='va'>water</span><span class='op'>)</span> |&gt;
-  <span class='fu'>mutate</span><span class='op'>(</span>avg <span class='op'>=</span> <span class='va'>avg_size</span> <span class='op'>+</span> <span class='va'>ecart_size</span><span class='op'>[</span><span class='va'>sp_id</span><span class='op'>]</span> <span class='op'>+</span> <span class='va'>slope_water</span><span class='op'>*</span><span class='va'>water</span><span class='op'>)</span>
-
-<span class='va'>avg_resp</span> |&gt;
-  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>water</span>, y <span class='op'>=</span> <span class='va'>avg</span>, group <span class='op'>=</span> <span class='va'>sp_id</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span>
-  <span class='fu'>geom_line</span><span class='op'>(</span><span class='op'>)</span>
-</code></pre>
-</div>
-<img src="index_files/figure-html5/unnamed-chunk-1-1.png" width="624" />
-<div class="sourceCode">
-<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>obs_sd</span> <span class='op'>&lt;-</span> <span class='fl'>2</span>
-
-<span class='va'>obs_data</span> <span class='op'>&lt;-</span> <span class='va'>avg_resp</span> |&gt;
-  <span class='fu'>mutate</span><span class='op'>(</span>obs <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/Normal.html'>rnorm</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/length.html'>length</a></span><span class='op'>(</span><span class='va'>avg</span><span class='op'>)</span>, mean <span class='op'>=</span> <span class='va'>avg</span>, sd <span class='op'>=</span> <span class='va'>obs_sd</span><span class='op'>)</span><span class='op'>)</span>
+  <span class='fu'>mutate</span><span class='op'>(</span>avg <span class='op'>=</span> <span class='va'>avg_size</span> <span class='op'>+</span> <span class='va'>ecart_size</span><span class='op'>[</span><span class='va'>sp_id</span><span class='op'>]</span> <span class='op'>+</span> <span class='va'>slope_water</span><span class='op'>*</span><span class='va'>water</span>, 
+         obs <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/Normal.html'>rnorm</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/length.html'>length</a></span><span class='op'>(</span><span class='va'>avg</span><span class='op'>)</span>, mean <span class='op'>=</span> <span class='va'>avg</span>, sd <span class='op'>=</span> <span class='va'>obs_sd</span><span class='op'>)</span><span class='op'>)</span>
 
 <span class='va'>obs_data</span> |&gt;
-  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>water</span>, y <span class='op'>=</span> <span class='va'>obs</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> <span class='fu'>geom_point</span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span>
-  <span class='fu'>geom_line</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>y <span class='op'>=</span> <span class='va'>avg</span>, group <span class='op'>=</span> <span class='va'>sp_id</span><span class='op'>)</span><span class='op'>)</span>
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>water</span>, y <span class='op'>=</span> <span class='va'>obs</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>geom_point</span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'>geom_line</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>y <span class='op'>=</span> <span class='va'>avg</span>, group <span class='op'>=</span> <span class='va'>sp_id</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>labs</span><span class='op'>(</span>x <span class='op'>=</span> <span class='st'>"Water"</span>, y <span class='op'>=</span> <span class='st'>"Mass"</span><span class='op'>)</span>
 </code></pre>
 </div>
-<img src="index_files/figure-html5/unnamed-chunk-1-2.png" width="624" />
+<p><img src="index_files/figure-html5/unnamed-chunk-1-1.png" width="624" /></p>
+</div>
+<h3 id="frequentist-calculation">Frequentist calculation</h3>
+<p>How much of the variation in growth is contributed by plant lines? In other words, what proportion of total variance comes from genetic differences? We can apply the formula above by manually extracting the variance components from the model:</p>
+<div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
 <pre class="sourceCode r"><code class="sourceCode r"><span class='va'>lmer_mod</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/lme4/man/lmer.html'>lmer</a></span><span class='op'>(</span><span class='va'>obs</span><span class='op'>~</span><span class='va'>water</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>|</span> <span class='va'>sp_id</span><span class='op'>)</span>, data <span class='op'>=</span> <span class='va'>obs_data</span><span class='op'>)</span>
 
 <span class='va'>gauss_vc</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/lme4/man/VarCorr.html'>VarCorr</a></span><span class='op'>(</span><span class='va'>lmer_mod</span><span class='op'>)</span> |&gt; <span class='fu'><a href='https://rdrr.io/r/base/as.data.frame.html'>as.data.frame</a></span><span class='op'>(</span><span class='op'>)</span>
-<span class='va'>gauss_vc</span><span class='op'>$</span><span class='va'>sdcor</span><span class='op'>[[</span><span class='fl'>1</span><span class='op'>]</span><span class='op'>]</span><span class='op'>^</span><span class='fl'>2</span>
+
+<span class='va'>freq_line</span> <span class='op'>&lt;-</span> <span class='va'>gauss_vc</span><span class='op'>$</span><span class='va'>vcov</span><span class='op'>[[</span><span class='fl'>1</span><span class='op'>]</span><span class='op'>]</span><span class='op'>/</span><span class='op'>(</span><span class='va'>gauss_vc</span><span class='op'>$</span><span class='va'>vcov</span><span class='op'>[[</span><span class='fl'>1</span><span class='op'>]</span><span class='op'>]</span> <span class='op'>+</span> <span class='va'>gauss_vc</span><span class='op'>$</span><span class='va'>vcov</span><span class='op'>[[</span><span class='fl'>2</span><span class='op'>]</span><span class='op'>]</span><span class='op'>)</span>
+<span class='va'>freq_line</span>
 </code></pre>
 </div>
-<pre><code>[1] 8.181097</code></pre>
+<pre><code>[1] 0.6057147</code></pre>
+</div>
+<p>We can do the same with the <code>rptR</code> package <span class="citation" data-cites="stoffel2017">(<a href="#ref-stoffel2017" role="doc-biblioref">Stoffel, Nakagawa, and Schielzeth 2017</a>)</span></p>
+<div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
-<pre class="sourceCode r"><code class="sourceCode r"><span class='co'># 2.4490^2/(2.4490^2 + 0.29936^2)</span>
-<span class='va'>freq_line</span> <span class='op'>&lt;-</span> <span class='va'>gauss_vc</span><span class='op'>$</span><span class='va'>vcov</span><span class='op'>[[</span><span class='fl'>1</span><span class='op'>]</span><span class='op'>]</span><span class='op'>/</span><span class='op'>(</span><span class='va'>gauss_vc</span><span class='op'>$</span><span class='va'>vcov</span><span class='op'>[[</span><span class='fl'>1</span><span class='op'>]</span><span class='op'>]</span> <span class='op'>+</span> <span class='va'>gauss_vc</span><span class='op'>$</span><span class='va'>vcov</span><span class='op'>[[</span><span class='fl'>2</span><span class='op'>]</span><span class='op'>]</span><span class='op'>)</span>
-
-
-<span class='va'>rpt_obs</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/rptR/man/rpt.html'>rpt</a></span><span class='op'>(</span><span class='va'>obs</span> <span class='op'>~</span> <span class='va'>water</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>|</span> <span class='va'>sp_id</span><span class='op'>)</span>,
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>rpt_obs</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/rptR/man/rpt.html'>rpt</a></span><span class='op'>(</span><span class='va'>obs</span> <span class='op'>~</span> <span class='va'>water</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>|</span> <span class='va'>sp_id</span><span class='op'>)</span>,
                      data <span class='op'>=</span> <span class='fu'>mutate</span><span class='op'>(</span><span class='va'>obs_data</span>, sp_id <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/factor.html'>factor</a></span><span class='op'>(</span><span class='va'>sp_id</span><span class='op'>)</span><span class='op'>)</span>,
           grname <span class='op'>=</span> <span class='st'>"sp_id"</span>, datatype <span class='op'>=</span> <span class='st'>"Gaussian"</span>, nboot <span class='op'>=</span> <span class='fl'>0</span>, npermut <span class='op'>=</span> <span class='fl'>0</span><span class='op'>)</span>
 
@@ -2178,41 +2236,28 @@ y_i &amp;\sim \text{Normal}(\mu_i, \sigma_{obs}^2) \\
 Repeatability estimation using the lmm method 
 
 Repeatability for sp_id
-R  = 0.664
+R  = 0.606
 SE =  NA 
 CI = [NA, NA]
-P  = 3.74e-212 [LRT]
+P  = 2.37e-179 [LRT]
      NA [Permutation]</code></pre>
+</div>
+<h3 id="bayesian-calculation-parametric">Bayesian calculation (parametric)</h3>
+<p>As noted by <span class="citation" data-cites="NakaSchi10">(<a href="#ref-NakaSchi10" role="doc-biblioref">Nakagawa and Schielzeth 2010</a>)</span>:</p>
+<blockquote>
+<p>The advantage of using a Bayesian implementation such as MCMCglmm for estimating precisions, is that MCMC samples from the posterior distribution of the parameters (e.g. σ 2 α and σ 2 e ) can be combined (e.g. according to Eq. 22) to provide a valid posterior distribution for repeatability itself […]</p>
+</blockquote>
+<p>So we can repeat the procedure above, but this time using posterior samples from the parameters. This gives us a distribution which we could use to obtain HPDI intervals or summarize in some other way.</p>
+<p>The first step is to fit a bayesian model:</p>
+<div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
-<pre class="sourceCode r"><code class="sourceCode r"><span class='co'>### bayes</span>
-
-
-
-<span class='va'>gaussian_intercept_bf</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsformula.html'>bf</a></span><span class='op'>(</span><span class='va'>obs</span><span class='op'>~</span> <span class='va'>water</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>|</span> <span class='va'>sp_id</span><span class='op'>)</span>,
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gaussian_intercept_bf</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsformula.html'>bf</a></span><span class='op'>(</span><span class='va'>obs</span><span class='op'>~</span> <span class='va'>water</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>|</span> <span class='va'>sp_id</span><span class='op'>)</span>,
                             family <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/family.html'>gaussian</a></span><span class='op'>(</span><span class='op'>)</span><span class='op'>)</span>
 
-<span class='fu'><a href='https://rdrr.io/pkg/brms/man/get_prior.html'>get_prior</a></span><span class='op'>(</span><span class='va'>gaussian_intercept_bf</span>,
-          data <span class='op'>=</span> <span class='va'>obs_data</span><span class='op'>)</span>
-</code></pre>
-</div>
-<pre><code>                   prior     class      coef group resp dpar nlpar
-                  (flat)         b                                
-                  (flat)         b     water                      
- student_t(3, 23.7, 3.5) Intercept                                
-    student_t(3, 0, 3.5)        sd                                
-    student_t(3, 0, 3.5)        sd           sp_id                
-    student_t(3, 0, 3.5)        sd Intercept sp_id                
-    student_t(3, 0, 3.5)     sigma                                
- bound       source
-            default
-       (vectorized)
-            default
-            default
-       (vectorized)
-       (vectorized)
-            default</code></pre>
-<div class="sourceCode">
-<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gaussian_intercept_priors</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span>
+<span class='co'># get_prior(gaussian_intercept_bf,</span>
+<span class='co'>#          data = obs_data)</span>
+
+<span class='va'>gaussian_intercept_priors</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span>
   <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>exponential</a></span><span class='op'>(</span><span class='fl'>.3</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='va'>sigma</span><span class='op'>)</span>,
   <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>exponential</a></span><span class='op'>(</span><span class='fl'>.2</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"sd"</span><span class='op'>)</span>,
   <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'>normal</span><span class='op'>(</span><span class='fl'>5</span>, <span class='fl'>6</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"b"</span><span class='op'>)</span>,
@@ -2230,28 +2275,43 @@ P  = 3.74e-212 [LRT]
 </div>
 <pre><code>Running MCMC with 4 parallel chains...
 
-Chain 2 finished in 7.8 seconds.
-Chain 4 finished in 8.4 seconds.
-Chain 1 finished in 9.7 seconds.
-Chain 3 finished in 10.4 seconds.
+Chain 4 finished in 7.0 seconds.
+Chain 1 finished in 7.5 seconds.
+Chain 2 finished in 8.1 seconds.
+Chain 3 finished in 8.2 seconds.
 
 All 4 chains finished successfully.
-Mean chain execution time: 9.1 seconds.
-Total execution time: 10.7 seconds.</code></pre>
-<div class="sourceCode">
-<pre class="sourceCode r"><code class="sourceCode r"><span class='fu'>brms</span><span class='fu'>::</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/bayes_R2.brmsfit.html'>bayes_R2</a></span><span class='op'>(</span><span class='va'>gaussian_brm</span><span class='op'>)</span>
-</code></pre>
+Mean chain execution time: 7.7 seconds.
+Total execution time: 8.5 seconds.</code></pre>
 </div>
-<pre><code>    Estimate   Est.Error      Q2.5     Q97.5
-R2 0.6837725 0.009507782 0.6642681 0.7014138</code></pre>
+<p>The following creates the <span class="math inline">\(K\)</span> groups for each posterior sample. I visualize one sample just to show that (1) they look just like the original groups (2) there’s a lot of them. At this stage it is <em>absolutely critical</em> if you are using <code>brms</code> that you set the option <code>sample_new_levels = "gaussian"</code>. All this and more is described in Andrew Heiss’s <a href="https://www.andrewheiss.com/blog/2021/11/10/ame-bayes-re-guide/">fabulous blog on the topic</a></p>
+<div class="layout-chunk" data-layout="l-body">
 <div class="sourceCode">
-<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>sample_draws</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>sp_id <span class='op'>=</span> <span class='va'>letters</span>,
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>sample_draws</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>sp_id <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/paste.html'>paste0</a></span><span class='op'>(</span><span class='st'>"newsp"</span>, <span class='fl'>1</span><span class='op'>:</span><span class='fl'>100</span><span class='op'>)</span>,
                             water <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/unique.html'>unique</a></span><span class='op'>(</span><span class='va'>obs_data</span><span class='op'>$</span><span class='va'>water</span><span class='op'>)</span><span class='op'>)</span> |&gt;
   <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/add_predicted_draws.html'>add_epred_draws</a></span><span class='op'>(</span><span class='va'>gaussian_brm</span>,
                   allow_new_levels <span class='op'>=</span> <span class='cn'>TRUE</span>,
                   sample_new_levels<span class='op'>=</span> <span class='st'>"gaussian"</span><span class='op'>)</span>
 
-<span class='va'>sample_variance</span> <span class='op'>&lt;-</span> <span class='va'>sample_draws</span> |&gt;
+<span class='va'>sample_draws</span> |&gt; 
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt; 
+  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>.draw</span> <span class='op'>==</span> <span class='fl'>121</span><span class='op'>)</span> |&gt; 
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>water</span>, y <span class='op'>=</span> <span class='va'>.epred</span>, group <span class='op'>=</span> <span class='va'>sp_id</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>geom_line</span><span class='op'>(</span>alpha <span class='op'>=</span> <span class='fl'>.3</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>theme_bw</span><span class='op'>(</span><span class='op'>)</span>
+</code></pre>
+</div>
+<div class="figure">
+<img src="index_files/figure-html5/posterior_k_gauss-1.png" alt="100 simulated groups from a single posterior sample of the hyperparameter $\sigma_{\text{group}}^2$" width="624" />
+<p class="caption">
+(#fig:posterior_k_gauss)100 simulated groups from a single posterior sample of the hyperparameter <span class="math inline">\(\sigma_{\text{group}}^2\)</span>
+</p>
+</div>
+</div>
+<p><em>IMPORTANT</em> The next step is one that I tested a few times and I hope is valid. We need to match the average predictions from <code>add_epred_draws</code> to the <span class="math inline">\(\sigma_{\text{res}}\)</span> values <em>from those exact same draws</em>. I <em>think</em> that this works – ie that if you take ALL the posterior draws (not using the <code>ndraws</code> argument) then the numbers of the draws match. If so, then the data frames can be merged together.<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a></p>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>sample_variance</span> <span class='op'>&lt;-</span> <span class='va'>sample_draws</span> |&gt;
   <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
   <span class='fu'>nest_by</span><span class='op'>(</span><span class='va'>.draw</span>, <span class='va'>water</span><span class='op'>)</span> |&gt;
   <span class='fu'>mutate</span><span class='op'>(</span>Vpred <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/cor.html'>var</a></span><span class='op'>(</span><span class='va'>data</span><span class='op'>$</span><span class='va'>.epred</span><span class='op'>)</span><span class='op'>)</span>
@@ -2262,18 +2322,442 @@ R2 0.6837725 0.009507782 0.6642681 0.7014138</code></pre>
   <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
   <span class='fu'>left_join</span><span class='op'>(</span><span class='va'>sigma_draws</span>, by <span class='op'>=</span> <span class='st'>".draw"</span><span class='op'>)</span> |&gt;
   <span class='fu'>mutate</span><span class='op'>(</span>icc_x <span class='op'>=</span> <span class='va'>Vpred</span><span class='op'>/</span><span class='op'>(</span><span class='va'>Vpred</span> <span class='op'>+</span> <span class='va'>sigma</span><span class='op'>^</span><span class='fl'>2</span><span class='op'>)</span><span class='op'>)</span>
-
-<span class='va'>icc_of_x</span> |&gt;
-  <span class='fu'>select</span><span class='op'>(</span><span class='va'>.draw</span>, <span class='va'>icc_x</span><span class='op'>)</span> |&gt; <span class='fu'>distinct</span><span class='op'>(</span><span class='op'>)</span> |&gt;
-  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>icc_x</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span>
-  <span class='fu'>geom_histogram</span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span>
-  <span class='fu'>geom_vline</span><span class='op'>(</span>xintercept <span class='op'>=</span> <span class='va'>freq_line</span>, col <span class='op'>=</span> <span class='st'>"lightblue"</span><span class='op'>)</span>
 </code></pre>
 </div>
-<p><img src="index_files/figure-html5/unnamed-chunk-1-3.png" width="624" /></p>
 </div>
-<p>There are many elaborations suggested by <span class="citation" data-cites="NakaSchi10">(<a href="#ref-NakaSchi10" role="doc-biblioref">Nakagawa and Schielzeth 2010</a>)</span></p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode r distill-force-highlighting-css"><code class="sourceCode r"></code></pre></div>
+<p>Finally, with this merged dataframe, we can calculate the Bayesian simulation approach (<span class="math inline">\(\text{ICC}(x)\)</span>) and compare it to the Bayesian analytic option (<span class="math inline">\(\text{ICC}_B\)</span>) and the frequentist point estimate (<span class="math inline">\(\text{ICC}_F\)</span>)</p>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='co'># get_variables(gaussian_brm)</span>
+
+<span class='va'>gaussian_varcomp</span> <span class='op'>&lt;-</span> <span class='va'>gaussian_brm</span> |&gt; 
+  <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/spread_draws.html'>spread_draws</a></span><span class='op'>(</span><span class='va'>sd_sp_id__Intercept</span>, <span class='va'>sigma</span><span class='op'>)</span>
+
+<span class='va'>gaussian_varcomp</span> |&gt; 
+  <span class='fu'>mutate</span><span class='op'>(</span>icc_analytic <span class='op'>=</span> <span class='va'>sd_sp_id__Intercept</span><span class='op'>^</span><span class='fl'>2</span><span class='op'>/</span><span class='op'>(</span><span class='va'>sd_sp_id__Intercept</span><span class='op'>^</span><span class='fl'>2</span> <span class='op'>+</span> <span class='va'>sigma</span><span class='op'>^</span><span class='fl'>2</span><span class='op'>)</span><span class='op'>)</span> |&gt; 
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>icc_analytic</span><span class='op'>)</span><span class='op'>)</span>  <span class='op'>+</span>
+  <span class='fu'>geom_density</span><span class='op'>(</span>lwd <span class='op'>=</span> <span class='fl'>2</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>geom_density</span><span class='op'>(</span>data <span class='op'>=</span> <span class='va'>icc_of_x</span>, <span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>icc_x</span><span class='op'>)</span>, col <span class='op'>=</span> <span class='st'>"orange"</span>, lwd<span class='op'>=</span><span class='fl'>2</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>geom_vline</span><span class='op'>(</span>xintercept <span class='op'>=</span> <span class='va'>freq_line</span>, col <span class='op'>=</span> <span class='st'>"darkgreen"</span>, lwd<span class='op'>=</span><span class='fl'>2</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>theme_bw</span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>labs</span><span class='op'>(</span>x <span class='op'>=</span> <span class='st'>"ICC"</span><span class='op'>)</span>
+</code></pre>
+</div>
+<div class="figure"><span id="fig:ICC-three-ways-gauss"></span>
+<img src="index_files/figure-html5/ICC-three-ways-gauss-1.png" alt="Comparison of three ways of calculating the ICC. The vertical green line is the frequentist point estimate. The black curve is the posterior distribution obtained by applying the formula to posterior samples of the hyperparameter and parameter. The orange curve is the simulation based approach for 100 simulated groups." width="624" />
+<p class="caption">
+Figure 1: Comparison of three ways of calculating the ICC. The vertical green line is the frequentist point estimate. The black curve is the posterior distribution obtained by applying the formula to posterior samples of the hyperparameter and parameter. The orange curve is the simulation based approach for 100 simulated groups.
+</p>
+</div>
+</div>
+<p>The pattern is quite similar, which is encouraging! If <span class="math inline">\(\text{ICC}(x)\)</span> gives the same answer as the other two, then it might be a useful tool. It is FAR more computationally demanding, but it is also much more flexible.</p>
+<h1 id="off-script">Off script</h1>
+<p>In the following sections there are no more comparisons to <span class="math inline">\(\text{ICC}_B\)</span> or <span class="math inline">\(\text{ICC}_F\)</span>, because (as far as I know) its not possible to calculate them for any of these models.</p>
+<h2 id="gaussian-random-slopes">Gaussian random slopes</h2>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>water</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/Uniform.html'>runif</a></span><span class='op'>(</span><span class='fl'>50</span>, min <span class='op'>=</span> <span class='op'>-</span><span class='fl'>1</span>, max <span class='op'>=</span> <span class='fl'>1</span><span class='op'>)</span>
+
+<span class='va'>avg_size</span> <span class='op'>&lt;-</span> <span class='fl'>23</span>
+<span class='va'>avg_eff_water</span> <span class='op'>&lt;-</span> <span class='fl'>7</span>
+<span class='va'>corrmat</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/matrix.html'>matrix</a></span><span class='op'>(</span>
+  <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span><span class='fl'>1</span>,<span class='op'>-</span><span class='fl'>.8</span>,
+    <span class='op'>-</span><span class='fl'>.8</span>, <span class='fl'>1</span><span class='op'>)</span>, nrow <span class='op'>=</span> <span class='fl'>2</span>, byrow <span class='op'>=</span> <span class='cn'>TRUE</span>
+<span class='op'>)</span>
+
+<span class='va'>sds</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span><span class='fl'>1</span>,<span class='fl'>4</span><span class='op'>)</span>
+<span class='va'>vcov</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/diag.html'>diag</a></span><span class='op'>(</span><span class='va'>sds</span><span class='op'>)</span> <span class='op'>%*%</span> <span class='va'>corrmat</span> <span class='op'>%*%</span> <span class='fu'><a href='https://rdrr.io/r/base/diag.html'>diag</a></span><span class='op'>(</span><span class='va'>sds</span><span class='op'>)</span>
+
+<span class='va'>b</span> <span class='op'>&lt;-</span> <span class='fu'>MASS</span><span class='fu'>::</span><span class='fu'><a href='https://rdrr.io/pkg/MASS/man/mvrnorm.html'>mvrnorm</a></span><span class='op'>(</span><span class='fl'>20</span>, mu <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span><span class='fl'>0</span>, <span class='fl'>0</span><span class='op'>)</span>, Sigma <span class='op'>=</span> <span class='va'>vcov</span><span class='op'>)</span>
+
+<span class='va'>obs_sd</span> <span class='op'>&lt;-</span> <span class='fl'>1</span>
+
+<span class='va'>obs_data</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>sp_id <span class='op'>=</span> <span class='fl'>1</span><span class='op'>:</span><span class='fl'>20</span>,
+            <span class='va'>water</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>avg <span class='op'>=</span> <span class='va'>avg_size</span> <span class='op'>+</span> <span class='va'>avg_eff_water</span><span class='op'>*</span><span class='va'>water</span> <span class='op'>+</span>  <span class='va'>b</span><span class='op'>[</span><span class='va'>sp_id</span>,<span class='fl'>1</span><span class='op'>]</span> <span class='op'>+</span> <span class='va'>b</span><span class='op'>[</span><span class='va'>sp_id</span>,<span class='fl'>2</span><span class='op'>]</span><span class='op'>*</span><span class='va'>water</span>, 
+         obs <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/Normal.html'>rnorm</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/length.html'>length</a></span><span class='op'>(</span><span class='va'>avg</span><span class='op'>)</span>, mean <span class='op'>=</span> <span class='va'>avg</span>, sd <span class='op'>=</span> <span class='va'>obs_sd</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='va'>obs_data</span> |&gt;
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>water</span>, y <span class='op'>=</span> <span class='va'>obs</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>geom_point</span><span class='op'>(</span>alpha <span class='op'>=</span> <span class='fl'>.6</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'>geom_line</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>y <span class='op'>=</span> <span class='va'>avg</span>, group <span class='op'>=</span> <span class='va'>sp_id</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>labs</span><span class='op'>(</span>x <span class='op'>=</span> <span class='st'>"Water"</span>, y <span class='op'>=</span> <span class='st'>"Mass"</span><span class='op'>)</span>
+</code></pre>
+</div>
+<p><img src="index_files/figure-html5/gaussian_random_slopes-1.png" width="624" /></p>
+</div>
+<p>Fit a bayesian model and plot the ICC(x)</p>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gaussian_slope_bf</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsformula.html'>bf</a></span><span class='op'>(</span><span class='va'>obs</span><span class='op'>~</span> <span class='fl'>1</span><span class='op'>+</span> <span class='va'>water</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>+</span> <span class='va'>water</span> <span class='op'>|</span> <span class='va'>sp_id</span><span class='op'>)</span>,
+                            family <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/family.html'>gaussian</a></span><span class='op'>(</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='fu'><a href='https://rdrr.io/pkg/brms/man/get_prior.html'>get_prior</a></span><span class='op'>(</span><span class='va'>gaussian_slope_bf</span>,
+         data <span class='op'>=</span> <span class='va'>obs_data</span><span class='op'>)</span>
+</code></pre>
+</div>
+<pre><code>                   prior     class      coef group resp dpar nlpar
+                  (flat)         b                                
+                  (flat)         b     water                      
+                  lkj(1)       cor                                
+                  lkj(1)       cor           sp_id                
+ student_t(3, 23.3, 4.9) Intercept                                
+    student_t(3, 0, 4.9)        sd                                
+    student_t(3, 0, 4.9)        sd           sp_id                
+    student_t(3, 0, 4.9)        sd Intercept sp_id                
+    student_t(3, 0, 4.9)        sd     water sp_id                
+    student_t(3, 0, 4.9)     sigma                                
+ bound       source
+            default
+       (vectorized)
+            default
+       (vectorized)
+            default
+            default
+       (vectorized)
+       (vectorized)
+       (vectorized)
+            default</code></pre>
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gaussian_slope_priors</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span>
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>exponential</a></span><span class='op'>(</span><span class='fl'>.3</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='va'>sigma</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>exponential</a></span><span class='op'>(</span><span class='fl'>.5</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"sd"</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'>lkj</span><span class='op'>(</span><span class='fl'>2</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"cor"</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'>normal</span><span class='op'>(</span><span class='fl'>5</span>, <span class='fl'>6</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"b"</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'>normal</span><span class='op'>(</span><span class='fl'>20</span>, <span class='fl'>10</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"Intercept"</span><span class='op'>)</span>
+<span class='op'>)</span>
+
+
+<span class='va'>gaussian_slope_brm</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brm.html'>brm</a></span><span class='op'>(</span><span class='va'>gaussian_slope_bf</span>,
+                          prior <span class='op'>=</span> <span class='va'>gaussian_slope_priors</span>,
+                          data <span class='op'>=</span> <span class='va'>obs_data</span>, file <span class='op'>=</span> <span class='st'>"gaussian_slope_brm"</span>,
+                          backend <span class='op'>=</span> <span class='st'>"cmdstanr"</span>, cores <span class='op'>=</span> <span class='fl'>4</span><span class='op'>)</span>
+
+<span class='va'>gaussian_slope_brm</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/update.html'>update</a></span><span class='op'>(</span><span class='va'>gaussian_slope_brm</span>, newdata <span class='op'>=</span> <span class='va'>obs_data</span>, cores <span class='op'>=</span> <span class='fl'>4</span>, refresh <span class='op'>=</span> <span class='fl'>0</span><span class='op'>)</span>
+</code></pre>
+</div>
+<pre><code>Running MCMC with 4 parallel chains...
+
+Chain 2 finished in 44.9 seconds.
+Chain 1 finished in 45.5 seconds.
+Chain 3 finished in 46.0 seconds.
+Chain 4 finished in 46.4 seconds.
+
+All 4 chains finished successfully.
+Mean chain execution time: 45.7 seconds.
+Total execution time: 46.7 seconds.</code></pre>
+</div>
+<p>calculate ICC(x)</p>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gauss_slope_sample_draws</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>sp_id <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/paste.html'>paste0</a></span><span class='op'>(</span><span class='st'>"newsp"</span>, <span class='fl'>1</span><span class='op'>:</span><span class='fl'>100</span><span class='op'>)</span>,
+                            water <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/seq.html'>seq</a></span><span class='op'>(</span>from <span class='op'>=</span> <span class='op'>-</span><span class='fl'>1</span>, to <span class='op'>=</span> <span class='fl'>1</span>, length.out <span class='op'>=</span> <span class='fl'>33</span><span class='op'>)</span><span class='op'>)</span> |&gt;
+  <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/add_predicted_draws.html'>add_epred_draws</a></span><span class='op'>(</span><span class='va'>gaussian_slope_brm</span>,
+                  allow_new_levels <span class='op'>=</span> <span class='cn'>TRUE</span>,
+                  sample_new_levels<span class='op'>=</span> <span class='st'>"gaussian"</span><span class='op'>)</span>
+
+<span class='va'>gauss_slope_sample_draws</span> |&gt; 
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt; 
+  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>.draw</span> <span class='op'>==</span> <span class='fl'>121</span><span class='op'>)</span> |&gt; 
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>water</span>, y <span class='op'>=</span> <span class='va'>.epred</span>, group <span class='op'>=</span> <span class='va'>sp_id</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>geom_line</span><span class='op'>(</span>alpha <span class='op'>=</span> <span class='fl'>.3</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>theme_bw</span><span class='op'>(</span><span class='op'>)</span>
+</code></pre>
+</div>
+<p><img src="index_files/figure-html5/unnamed-chunk-6-1.png" width="624" /></p>
+</div>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gauss_slope_sample_variance</span> <span class='op'>&lt;-</span> <span class='va'>gauss_slope_sample_draws</span> |&gt;
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='fu'>nest_by</span><span class='op'>(</span><span class='va'>.draw</span>, <span class='va'>water</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>Vpred <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/cor.html'>var</a></span><span class='op'>(</span><span class='va'>data</span><span class='op'>$</span><span class='va'>.epred</span><span class='op'>)</span><span class='op'>)</span> |&gt; 
+  <span class='fu'>select</span><span class='op'>(</span><span class='op'>-</span><span class='va'>data</span><span class='op'>)</span>
+
+<span class='va'>sigma_draws</span> <span class='op'>&lt;-</span> <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/spread_draws.html'>spread_draws</a></span><span class='op'>(</span><span class='va'>gaussian_slope_brm</span>, <span class='va'>sigma</span><span class='op'>)</span>
+
+<span class='va'>gauss_slope_icc_of_x</span> <span class='op'>&lt;-</span> <span class='va'>gauss_slope_sample_variance</span> |&gt;
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='fu'>left_join</span><span class='op'>(</span><span class='va'>sigma_draws</span>, by <span class='op'>=</span> <span class='st'>".draw"</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>icc_x <span class='op'>=</span> <span class='va'>Vpred</span><span class='op'>/</span><span class='op'>(</span><span class='va'>Vpred</span> <span class='op'>+</span> <span class='va'>sigma</span><span class='op'>^</span><span class='fl'>2</span><span class='op'>)</span><span class='op'>)</span>
+</code></pre>
+</div>
+</div>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gauss_slope_icc_of_x</span> |&gt; 
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>water</span>, y <span class='op'>=</span> <span class='va'>icc_x</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'><a href='http://mjskay.github.io/ggdist/reference/stat_lineribbon.html'>stat_lineribbon</a></span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>scale_fill_brewer</span><span class='op'>(</span>palette <span class='op'>=</span> <span class='st'>"Greens"</span>, direction <span class='op'>=</span> <span class='op'>-</span><span class='fl'>1</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>labs</span><span class='op'>(</span>y <span class='op'>=</span> <span class='st'>"ICC(x)"</span>, x <span class='op'>=</span> <span class='st'>"Water"</span><span class='op'>)</span>
+</code></pre>
+</div>
+<div class="figure"><span id="fig:icc-gauss-slopes"></span>
+<img src="index_files/figure-html5/icc-gauss-slopes-1.png" alt="The ICC(x) for a random slopes model. In this case, the variation explained by groups is lowest in the middle of the gradient of X, and highest at the extremes." width="624" />
+<p class="caption">
+Figure 2: The ICC(x) for a random slopes model. In this case, the variation explained by groups is lowest in the middle of the gradient of X, and highest at the extremes.
+</p>
+</div>
+</div>
+<h2 id="nonlinear-models-normal-errors">Nonlinear models, normal errors</h2>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='co'># rates vary slightly</span>
+<span class='va'>log_mean_rate</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>log</a></span><span class='op'>(</span><span class='fl'>0.7</span><span class='op'>)</span>
+
+<span class='va'>log_indiv_ecart</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/Normal.html'>rnorm</a></span><span class='op'>(</span><span class='fl'>15</span>, mean <span class='op'>=</span> <span class='fl'>0</span>, sd <span class='op'>=</span> <span class='fl'>.4</span><span class='op'>)</span>
+
+<span class='va'>rates</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='va'>log_mean_rate</span> <span class='op'>+</span> <span class='va'>log_indiv_ecart</span><span class='op'>)</span>
+
+<span class='co'>## NORMAL OBS -----------------------------------</span>
+
+<span class='co'>## observations are normally distributed</span>
+
+<span class='va'>sd</span> <span class='op'>&lt;-</span> <span class='fl'>5</span>
+<span class='va'>M0</span> <span class='op'>&lt;-</span> <span class='fl'>200</span>
+
+<span class='va'>simulated_decay</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/expand.grid.html'>expand.grid</a></span><span class='op'>(</span>sample_id <span class='op'>=</span> <span class='fl'>1</span><span class='op'>:</span><span class='fl'>15</span>, time <span class='op'>=</span> <span class='fl'>0</span><span class='op'>:</span><span class='fl'>10</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>rate <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='va'>log_mean_rate</span> <span class='op'>+</span> <span class='va'>log_indiv_ecart</span><span class='op'>[</span><span class='va'>sample_id</span><span class='op'>]</span><span class='op'>)</span>,
+         Mt  <span class='op'>=</span> <span class='va'>M0</span> <span class='op'>*</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='op'>-</span><span class='va'>rate</span><span class='op'>*</span><span class='va'>time</span><span class='op'>)</span>,
+         obs_mass <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/Normal.html'>rnorm</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/length.html'>length</a></span><span class='op'>(</span><span class='va'>Mt</span><span class='op'>)</span>,
+                          mean <span class='op'>=</span> <span class='va'>Mt</span>,
+                          sd <span class='op'>=</span> <span class='va'>sd</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='va'>simulated_decay</span> |&gt;
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>time</span>, y <span class='op'>=</span> <span class='va'>Mt</span>, group <span class='op'>=</span> <span class='va'>sample_id</span><span class='op'>)</span><span class='op'>)</span><span class='op'>+</span>
+  <span class='fu'>geom_line</span><span class='op'>(</span><span class='op'>)</span>
+</code></pre>
+</div>
+<img src="index_files/figure-html5/unnamed-chunk-8-1.png" width="624" />
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>data_figure</span> <span class='op'>&lt;-</span> <span class='va'>simulated_decay</span> |&gt;
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>time</span>, y <span class='op'>=</span> <span class='va'>Mt</span>, group <span class='op'>=</span> <span class='va'>sample_id</span><span class='op'>)</span><span class='op'>)</span><span class='op'>+</span>
+  <span class='fu'>geom_line</span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'>geom_point</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>y <span class='op'>=</span> <span class='va'>obs_mass</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='co'>## brms mdeol</span>
+<span class='va'>decay_normal_bf</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsformula.html'>bf</a></span><span class='op'>(</span><span class='va'>obs_mass</span> <span class='op'>~</span> <span class='fl'>200</span><span class='op'>*</span><span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='op'>-</span><span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='va'>rate</span><span class='op'>)</span> <span class='op'>*</span> <span class='va'>time</span><span class='op'>)</span>,
+   <span class='va'>rate</span> <span class='op'>~</span> <span class='fl'>1</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>|</span> <span class='va'>sample_id</span><span class='op'>)</span>, nl <span class='op'>=</span> <span class='cn'>TRUE</span>, family <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/family.html'>gaussian</a></span><span class='op'>(</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='co'>#get_prior(decay_normal_bf, data = simulated_decay)</span>
+
+<span class='va'>decay_normal_priors</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span>
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>exponential</a></span><span class='op'>(</span><span class='fl'>.3</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='va'>sigma</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>exponential</a></span><span class='op'>(</span><span class='fl'>.2</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='va'>sd</span>, nlpar <span class='op'>=</span> <span class='st'>"rate"</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'>normal</span><span class='op'>(</span><span class='op'>-</span><span class='fl'>.5</span>, <span class='fl'>.5</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"b"</span>, nlpar <span class='op'>=</span> <span class='st'>"rate"</span><span class='op'>)</span>
+<span class='op'>)</span>
+
+
+<span class='va'>decay_brm</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brm.html'>brm</a></span><span class='op'>(</span><span class='va'>decay_normal_bf</span>,
+                 prior <span class='op'>=</span> <span class='va'>decay_normal_priors</span>,
+                 data <span class='op'>=</span> <span class='va'>simulated_decay</span>,
+                 file <span class='op'>=</span> <span class='st'>"decay_normal"</span>,
+                 backend <span class='op'>=</span> <span class='st'>"cmdstanr"</span>,
+                 cores <span class='op'>=</span> <span class='fl'>4</span>, refresh <span class='op'>=</span> <span class='fl'>0</span><span class='op'>)</span>
+
+<span class='va'>decay_brm</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/update.html'>update</a></span><span class='op'>(</span><span class='va'>decay_brm</span>, newdata <span class='op'>=</span> <span class='va'>simulated_decay</span>, cores <span class='op'>=</span> <span class='fl'>4</span>, refresh <span class='op'>=</span> <span class='fl'>0</span><span class='op'>)</span>
+</code></pre>
+</div>
+<pre><code>Running MCMC with 4 parallel chains...
+
+Chain 3 finished in 3.7 seconds.
+Chain 4 finished in 3.6 seconds.
+Chain 2 finished in 3.9 seconds.
+Chain 1 finished in 4.0 seconds.
+
+All 4 chains finished successfully.
+Mean chain execution time: 3.8 seconds.
+Total execution time: 4.2 seconds.</code></pre>
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='co'>#### make fake groups</span>
+<span class='va'>new_groups</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/paste.html'>paste0</a></span><span class='op'>(</span><span class='st'>"s"</span>, <span class='fl'>1</span><span class='op'>:</span><span class='fl'>33</span><span class='op'>)</span>
+
+<span class='va'>sample_draws</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>sample_id <span class='op'>=</span> <span class='va'>new_groups</span>,
+                            time <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/seq.html'>seq</a></span><span class='op'>(</span>from <span class='op'>=</span> <span class='fl'>.1</span>,
+                                       to <span class='op'>=</span> <span class='fl'>10</span>,
+                                       length.out <span class='op'>=</span> <span class='fl'>40</span><span class='op'>)</span><span class='op'>)</span> |&gt;
+  <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/add_predicted_draws.html'>add_epred_draws</a></span><span class='op'>(</span><span class='va'>decay_brm</span>,
+                      allow_new_levels <span class='op'>=</span> <span class='cn'>TRUE</span>,
+                      sample_new_levels<span class='op'>=</span> <span class='st'>"gaussian"</span><span class='op'>)</span>
+
+<span class='va'>sample_draws</span> |&gt;
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>.draw</span><span class='op'>&lt;</span><span class='fl'>5</span><span class='op'>)</span> |&gt;
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>time</span>, y <span class='op'>=</span> <span class='va'>.epred</span>, group <span class='op'>=</span> <span class='va'>sample_id</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'>geom_line</span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'>facet_wrap</span><span class='op'>(</span><span class='op'>~</span><span class='va'>.draw</span><span class='op'>)</span>
+</code></pre>
+</div>
+<img src="index_files/figure-html5/unnamed-chunk-8-2.png" width="624" />
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='co'># for each draw, at each value of x,</span>
+<span class='co'># calculate the variance of the predictions</span>
+
+<span class='va'>sample_variance</span> <span class='op'>&lt;-</span> <span class='va'>sample_draws</span> |&gt; <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='fu'>nest_by</span><span class='op'>(</span><span class='va'>.draw</span>, <span class='va'>time</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>Vpred <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/cor.html'>var</a></span><span class='op'>(</span><span class='va'>data</span><span class='op'>$</span><span class='va'>.epred</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='va'>sigma_draws</span> <span class='op'>&lt;-</span> <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/spread_draws.html'>spread_draws</a></span><span class='op'>(</span><span class='va'>decay_brm</span>, <span class='va'>sigma</span><span class='op'>)</span>
+
+<span class='va'>icc_of_x</span> <span class='op'>&lt;-</span> <span class='va'>sample_variance</span> |&gt;
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='fu'>select</span><span class='op'>(</span><span class='va'>.draw</span>,<span class='va'>time</span>, <span class='va'>Vpred</span><span class='op'>)</span> |&gt;
+  <span class='fu'>left_join</span><span class='op'>(</span><span class='va'>sigma_draws</span>, by <span class='op'>=</span> <span class='st'>".draw"</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>icc_x <span class='op'>=</span> <span class='va'>Vpred</span><span class='op'>/</span><span class='op'>(</span><span class='va'>Vpred</span> <span class='op'>+</span> <span class='va'>sigma</span><span class='op'>^</span><span class='fl'>2</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='va'>icc_figure</span> <span class='op'>&lt;-</span> <span class='va'>icc_of_x</span> |&gt;
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>time</span>, y <span class='op'>=</span> <span class='va'>icc_x</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'><a href='http://mjskay.github.io/ggdist/reference/stat_lineribbon.html'>stat_lineribbon</a></span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>scale_fill_brewer</span><span class='op'>(</span>palette <span class='op'>=</span> <span class='st'>"Greens"</span>, direction <span class='op'>=</span> <span class='op'>-</span><span class='fl'>1</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>labs</span><span class='op'>(</span>y <span class='op'>=</span> <span class='st'>"ICC(x)"</span>, x <span class='op'>=</span> <span class='st'>"Time"</span><span class='op'>)</span>
+
+<span class='kw'><a href='https://rdrr.io/r/base/library.html'>library</a></span><span class='op'>(</span><span class='va'><a href='https://patchwork.data-imaginist.com'>patchwork</a></span><span class='op'>)</span>
+
+<span class='va'>data_figure</span> <span class='op'>+</span> <span class='va'>icc_figure</span>
+</code></pre>
+</div>
+<p><img src="index_files/figure-html5/unnamed-chunk-8-3.png" width="624" /></p>
+</div>
+<h2 id="decay-with-gamma-errors">Decay with Gamma errors</h2>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>alpha</span> <span class='op'>&lt;-</span> <span class='fl'>50</span>
+
+<span class='va'>log_mean_rate</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>log</a></span><span class='op'>(</span><span class='fl'>0.7</span><span class='op'>)</span>
+
+<span class='va'>log_indiv_ecart</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/Normal.html'>rnorm</a></span><span class='op'>(</span><span class='fl'>15</span>, mean <span class='op'>=</span> <span class='fl'>0</span>, sd <span class='op'>=</span> <span class='fl'>.7</span><span class='op'>)</span>
+
+<span class='va'>simulated_decay_gamma</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/expand.grid.html'>expand.grid</a></span><span class='op'>(</span>sample_id <span class='op'>=</span> <span class='fl'>1</span><span class='op'>:</span><span class='fl'>15</span>, time <span class='op'>=</span> <span class='fl'>0</span><span class='op'>:</span><span class='fl'>10</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>rate <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='va'>log_mean_rate</span> <span class='op'>+</span> <span class='va'>log_indiv_ecart</span><span class='op'>[</span><span class='va'>sample_id</span><span class='op'>]</span><span class='op'>)</span>,
+         Mt  <span class='op'>=</span> <span class='fl'>200</span> <span class='op'>*</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='op'>-</span><span class='va'>rate</span><span class='op'>*</span><span class='va'>time</span><span class='op'>)</span>,
+         obs_mass <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/GammaDist.html'>rgamma</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/r/base/length.html'>length</a></span><span class='op'>(</span><span class='va'>Mt</span><span class='op'>)</span>,shape <span class='op'>=</span> <span class='va'>alpha</span>, rate <span class='op'>=</span> <span class='va'>alpha</span><span class='op'>/</span><span class='va'>Mt</span><span class='op'>)</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>sample_id <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/paste.html'>paste0</a></span><span class='op'>(</span><span class='st'>"samp"</span>, <span class='va'>sample_id</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='co'># replace 0s with smallest nonzero</span>
+<span class='va'>tinymass</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/with.html'>with</a></span><span class='op'>(</span><span class='va'>simulated_decay_gamma</span>, <span class='fu'><a href='https://rdrr.io/r/base/Extremes.html'>min</a></span><span class='op'>(</span><span class='va'>obs_mass</span><span class='op'>[</span><span class='va'>obs_mass</span><span class='op'>&gt;</span><span class='fl'>0</span><span class='op'>]</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='va'>simulated_decay_gamma</span> <span class='op'>&lt;-</span> <span class='va'>simulated_decay_gamma</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>obs_mass <span class='op'>=</span> <span class='fu'>if_else</span><span class='op'>(</span><span class='va'>obs_mass</span> <span class='op'>==</span> <span class='fl'>0</span>, <span class='va'>tinymass</span>, <span class='va'>obs_mass</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='va'>gamma_data_figure</span> <span class='op'>&lt;-</span> <span class='va'>simulated_decay_gamma</span> |&gt;
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>time</span>, y <span class='op'>=</span> <span class='va'>Mt</span>, group <span class='op'>=</span> <span class='va'>sample_id</span> <span class='op'>)</span><span class='op'>)</span><span class='op'>+</span>
+  <span class='fu'>geom_line</span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'>geom_point</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>y <span class='op'>=</span> <span class='va'>obs_mass</span><span class='op'>)</span><span class='op'>)</span>
+</code></pre>
+</div>
+</div>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>decay_gamma_bf</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsformula.html'>bf</a></span><span class='op'>(</span>
+  <span class='va'>obs_mass</span> <span class='op'>~</span> <span class='fl'>200</span><span class='op'>*</span><span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='op'>-</span><span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='va'>rate</span><span class='op'>)</span> <span class='op'>*</span> <span class='va'>time</span><span class='op'>)</span>,
+  <span class='va'>rate</span> <span class='op'>~</span> <span class='fl'>1</span> <span class='op'>+</span> <span class='op'>(</span><span class='fl'>1</span> <span class='op'>|</span> <span class='va'>sample_id</span><span class='op'>)</span>,
+  nl <span class='op'>=</span> <span class='cn'>TRUE</span>,
+  family <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>brmsfamily</a></span><span class='op'>(</span><span class='st'>"Gamma"</span>,
+                      link <span class='op'>=</span> <span class='st'>"identity"</span>,
+                      link_shape <span class='op'>=</span> <span class='st'>"log"</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsformula-helpers.html'>lf</a></span><span class='op'>(</span><span class='va'>shape</span> <span class='op'>~</span> <span class='fl'>1</span><span class='op'>)</span>
+
+<span class='co'>#get_prior(decay_gamma_bf, data = simulated_decay_gamma)</span>
+
+<span class='va'>decay_gamma_priors</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span>
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'><a href='https://rdrr.io/pkg/brms/man/brmsfamily.html'>exponential</a></span><span class='op'>(</span><span class='fl'>4</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"sd"</span>, nlpar <span class='op'>=</span> <span class='st'>"rate"</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'>normal</span><span class='op'>(</span><span class='op'>-</span><span class='fl'>.5</span>, <span class='fl'>.5</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"b"</span>, nlpar <span class='op'>=</span> <span class='st'>"rate"</span><span class='op'>)</span>,
+  <span class='fu'><a href='https://rdrr.io/pkg/brms/man/set_prior.html'>prior</a></span><span class='op'>(</span><span class='fu'>normal</span><span class='op'>(</span><span class='fl'>4</span>, <span class='fl'>1</span><span class='op'>)</span>, class <span class='op'>=</span> <span class='st'>"Intercept"</span>, dpar  <span class='op'>=</span> <span class='st'>"shape"</span><span class='op'>)</span>
+<span class='op'>)</span>
+
+
+<span class='va'>decay_gamma_brm</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/pkg/brms/man/brm.html'>brm</a></span><span class='op'>(</span><span class='va'>decay_gamma_bf</span>,
+                 prior <span class='op'>=</span> <span class='va'>decay_gamma_priors</span>,
+                 data <span class='op'>=</span> <span class='va'>simulated_decay_gamma</span>,
+                 file <span class='op'>=</span> <span class='st'>"decay_gamma_brm"</span>,
+                 backend <span class='op'>=</span> <span class='st'>"cmdstanr"</span>, cores <span class='op'>=</span> <span class='fl'>4</span>,
+                 sample_prior <span class='op'>=</span> <span class='st'>"yes"</span>, refresh <span class='op'>=</span> <span class='fl'>0</span><span class='op'>)</span>
+
+<span class='va'>decay_gamma_brm</span> <span class='op'>&lt;-</span> <span class='fu'><a href='https://rdrr.io/r/stats/update.html'>update</a></span><span class='op'>(</span><span class='va'>decay_gamma_brm</span>,
+                          newdata <span class='op'>=</span> <span class='va'>simulated_decay_gamma</span>, 
+                          cores <span class='op'>=</span> <span class='fl'>4</span>, refresh <span class='op'>=</span> <span class='fl'>0</span><span class='op'>)</span>
+</code></pre>
+</div>
+<pre><code>Running MCMC with 4 parallel chains...
+
+Chain 2 finished in 47.6 seconds.
+Chain 4 finished in 50.4 seconds.
+Chain 1 finished in 50.1 seconds.
+Chain 3 finished in 51.2 seconds.
+
+All 4 chains finished successfully.
+Mean chain execution time: 49.8 seconds.
+Total execution time: 52.0 seconds.</code></pre>
+</div>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>decay_epred_draws</span> <span class='op'>&lt;-</span> <span class='fu'>expand_grid</span><span class='op'>(</span>time <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/seq.html'>seq</a></span><span class='op'>(</span>from <span class='op'>=</span> <span class='fl'>.1</span>,
+                                            to <span class='op'>=</span> <span class='fl'>10</span>,
+                                            length.out <span class='op'>=</span> <span class='fl'>40</span><span class='op'>)</span>,
+                                 sample_id <span class='op'>=</span> <span class='va'>letters</span><span class='op'>)</span> |&gt;
+  <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/add_predicted_draws.html'>add_epred_draws</a></span><span class='op'>(</span><span class='va'>decay_gamma_brm</span>,
+                  allow_new_levels <span class='op'>=</span> <span class='cn'>TRUE</span>,
+                  sample_new_levels<span class='op'>=</span> <span class='st'>"gaussian"</span><span class='op'>)</span>
+
+
+<span class='co'># calculate the variance among groups for each value of x (here x is time)</span>
+<span class='va'>decay_var_epred</span> <span class='op'>&lt;-</span> <span class='va'>decay_epred_draws</span> |&gt;
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='fu'>nest_by</span><span class='op'>(</span><span class='va'>.draw</span>, <span class='va'>time</span><span class='op'>)</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>Vpred <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/cor.html'>var</a></span><span class='op'>(</span><span class='va'>data</span><span class='op'>$</span><span class='va'>.epred</span><span class='op'>)</span><span class='op'>)</span>
+
+<span class='co'># get the shape.. first what was it called</span>
+<span class='co'># decay_gamma_brm |&gt; get_variables()</span>
+
+<span class='va'>shape_draws</span> <span class='op'>&lt;-</span> <span class='fu'><a href='http://mjskay.github.io/tidybayes/reference/spread_draws.html'>spread_draws</a></span><span class='op'>(</span><span class='va'>decay_gamma_brm</span>, <span class='va'>Intercept_shape</span><span class='op'>)</span>
+
+<span class='co'># stancode(decay_gamma_brm)</span>
+<span class='co'># need to exponentiate the shape draws as well!</span>
+
+<span class='va'>decay_gamma_mu_shape</span> <span class='op'>&lt;-</span> <span class='va'>decay_var_epred</span> |&gt;
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='fu'>left_join</span><span class='op'>(</span><span class='va'>shape_draws</span>, by <span class='op'>=</span> <span class='st'>".draw"</span><span class='op'>)</span>
+
+<span class='co'># calculate variance and then calculate icc</span>
+<span class='va'>icc_gamma</span> <span class='op'>&lt;-</span> <span class='va'>decay_gamma_mu_shape</span> |&gt;
+  <span class='fu'>rowwise</span><span class='op'>(</span><span class='op'>)</span> |&gt;
+  <span class='co'># exponentiante shape and divide the square of the mean by that</span>
+  <span class='fu'>mutate</span><span class='op'>(</span>shape <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/Log.html'>exp</a></span><span class='op'>(</span><span class='va'>Intercept_shape</span><span class='op'>)</span>,
+         mu_sq <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/list.html'>list</a></span><span class='op'>(</span><span class='va'>data</span><span class='op'>$</span><span class='va'>.epred</span><span class='op'>^</span><span class='fl'>2</span><span class='op'>)</span>,
+         var_k <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/list.html'>list</a></span><span class='op'>(</span><span class='va'>mu_sq</span> <span class='op'>/</span> <span class='va'>shape</span><span class='op'>)</span>,
+         mean_var <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/mean.html'>mean</a></span><span class='op'>(</span><span class='va'>var_k</span><span class='op'>)</span><span class='op'>)</span>
+
+
+<span class='va'>clean_icc</span> <span class='op'>&lt;-</span> <span class='va'>icc_gamma</span> |&gt;
+  <span class='fu'>mutate</span><span class='op'>(</span>icc_x <span class='op'>=</span> <span class='va'>Vpred</span><span class='op'>/</span><span class='op'>(</span><span class='va'>Vpred</span> <span class='op'>+</span> <span class='va'>mean_var</span><span class='op'>)</span><span class='op'>)</span> |&gt;
+  <span class='fu'>select</span><span class='op'>(</span><span class='va'>time</span>, <span class='va'>.draw</span>, <span class='va'>icc_x</span><span class='op'>)</span> |&gt;
+  <span class='fu'>ungroup</span><span class='op'>(</span><span class='op'>)</span>
+
+<span class='va'>gamma_icc_fig</span> <span class='op'>&lt;-</span> <span class='va'>clean_icc</span> |&gt;
+  <span class='fu'>ggplot</span><span class='op'>(</span><span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>time</span>, y <span class='op'>=</span> <span class='va'>icc_x</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span>
+  <span class='fu'><a href='http://mjskay.github.io/ggdist/reference/stat_lineribbon.html'>stat_lineribbon</a></span><span class='op'>(</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>scale_fill_brewer</span><span class='op'>(</span>palette <span class='op'>=</span> <span class='st'>"Greens"</span>, direction <span class='op'>=</span> <span class='op'>-</span><span class='fl'>1</span><span class='op'>)</span> <span class='op'>+</span> 
+  <span class='fu'>labs</span><span class='op'>(</span>y <span class='op'>=</span> <span class='st'>"ICC(x)"</span>, x <span class='op'>=</span> <span class='st'>"Time"</span><span class='op'>)</span>
+</code></pre>
+</div>
+</div>
+<div class="layout-chunk" data-layout="l-body">
+<div class="sourceCode">
+<pre class="sourceCode r"><code class="sourceCode r"><span class='va'>gamma_data_figure</span> <span class='op'>+</span> <span class='va'>gamma_icc_fig</span>
+</code></pre>
+</div>
+<div class="figure"><span id="fig:fig-gamma-decay-icc"></span>
+<img src="index_files/figure-html5/fig-gamma-decay-icc-1.png" alt="ICC for an exponential decay model with gamma errors. Because the variance is proportionally smaller than the mean, as the mean goes to 0 it takes the variance with it (but even faster). The result is that soon group ID controls almost all of the variation. This variation however is practically 0, since and this point almost everything has decayed to 0" width="624" />
+<p class="caption">
+Figure 3: ICC for an exponential decay model with gamma errors. Because the variance is proportionally smaller than the mean, as the mean goes to 0 it takes the variance with it (but even faster). The result is that soon group ID controls almost all of the variation. This variation however is practically 0, since and this point almost everything has decayed to 0
+</p>
+</div>
+</div>
+<p>Two models, each with very comparable structures, give completely opposite ICC(x) curves. Its an interesting consequence of extending the ICC in this way.</p>
+<h1 id="discussion">Discussion</h1>
+<p>What’s this good for? This extension of the classic ICC approach can apply to a much wider range of models, but it is also more complex to interpret. For example, there’s no clear way to put a single number on the outcome. For all but the simplest models, it is no longer possible to make a statment like “repeatability of this behaviour among animals was 60%.” Instead, we’d have to say something like “repeatability reached a maximum value of 60% (HDPI between 51 and 67%) after 5 days, after which it declined,” or “the ICC reached a value greater than 90% when water addition increased beyond 60L per m<sup>2</sup>”</p>
+<p>Because every quantity from a bayesian model has a posterior distribution, this approach would let us calculate both repeatability and broad-sense heritability (two interpretations of the ICC) for model-derived quantities. For example, we could expose many clonal lines of, say, aphids to different temperatures and measure population growth rates for each line at each temperature. This data could be modelled with thermal performance curves, each of which has several parameters. These parameters would be drawn from a multivariate normal distribution that would describe the variation among genotypes (clonal lines). With the resulting model it would be possible to measure the broad-sense heritability of, say, the temperature at which population growth rates are maximized.</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r distill-force-highlighting-css"><code class="sourceCode r"></code></pre></div>
 <div id="refs" class="references csl-bib-body hanging-indent" role="doc-bibliography">
 <div id="ref-GelmGood19a" class="csl-entry" role="doc-biblioentry">
 Gelman, Andrew, Ben Goodrich, Jonah Gabry, and Aki Vehtari. 2019. <span>“R-Squared for <span>Bayesian Regression Models</span>.”</span> <em>The American Statistician</em> 73 (3): 307–9. <a href="https://doi.org/10.1080/00031305.2018.1549100">https://doi.org/10.1080/00031305.2018.1549100</a>.
@@ -2281,7 +2765,17 @@ Gelman, Andrew, Ben Goodrich, Jonah Gabry, and Aki Vehtari. 2019. <span>“R-Squ
 <div id="ref-NakaSchi10" class="csl-entry" role="doc-biblioentry">
 Nakagawa, Shinichi, and Holger Schielzeth. 2010. <span>“Repeatability for <span>Gaussian</span> and Non-<span>Gaussian</span> Data: A Practical Guide for Biologists.”</span> <em>Biological Reviews</em> 85 (4): 935–56. <a href="https://doi.org/10.1111/j.1469-185X.2010.00141.x">https://doi.org/10.1111/j.1469-185X.2010.00141.x</a>.
 </div>
+<div id="ref-stoffel2017" class="csl-entry" role="doc-biblioentry">
+Stoffel, Martin A., Shinichi Nakagawa, and Holger Schielzeth. 2017. <span>“rptR: Repeatability Estimation and Variance Decomposition by Generalized Linear Mixed-Effects Models.”</span> <em>Methods in Ecology and Evolution</em> 8: 1639???1644. <a href="https://doi.org/10.1111/2041-210X.12797">https://doi.org/10.1111/2041-210X.12797</a>.
 </div>
+</div>
+<section class="footnotes" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p>I think it should be possible to extend this to multiple X values, in which case the ICC would become not a curve but a surface!<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2" role="doc-endnote"><p>I will probably have to ask this question of the creator of the wonderful <code>tidybayes</code>, Matthew Kay<a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
 <!--radix_placeholder_article_footer-->
 <!--/radix_placeholder_article_footer-->
 </div>
